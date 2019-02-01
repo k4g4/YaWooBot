@@ -333,7 +333,7 @@ async def moody(ctx):
 
 '''
 @bot.command(pass_context=True)
-@commands.cooldown(1, 15, commands.BucketType.user)
+@commands.cooldown(1, 20, commands.BucketType.user)
 async def addclass(ctx):
     pass
 '''
