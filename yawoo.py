@@ -1,3 +1,5 @@
+'''A discord bot for college students.'''
+
 import discord
 import asyncio
 import datetime
@@ -7,13 +9,15 @@ import time
 import difflib
 import pymongo
 import os
+import json
 from discord.ext import commands
+from urllib.request import urlopen, Request
+from yawoo_secrets import token
 
 __author__ = 'kaga'
 
 prefix = '*'
 bot = commands.Bot(command_prefix=prefix)
-token = ''
 yawoo_folder = '/home/onahole/YaWoo'
 colleges_file = os.path.join(yawoo_folder, 'colleges.png')
 error = ':no_entry_sign:'
@@ -29,6 +33,9 @@ uh_discord = '362623183146188802'
 chat_log = '504139294168842250'
 general = '362623183146188804'
 botspam = '362625628094070784'
+meta = '362687529004040193'
+regulars = '501972625149526036'
+mute_role = '434933653449998338'
 delete_emoji = '🗑'
 pin_emoji = '📌'
 staff_role_ids = {
@@ -52,6 +59,9 @@ connection = pymongo.MongoClient("mongodb://localhost")
 profiles = connection.uni.profiles
 starter = {
     'quotes':[],
+    'schedule':[],
+    'roles':[],
+    'mr':False,
 }
 
 def initialize(id):
@@ -69,28 +79,43 @@ async def on_ready():
 @bot.event
 async def on_member_join(member):
     if member.server.id != uh_discord: return
-    welcome = await bot.send_file(discord.Object(general), colleges_file, content='Welcome to the University of Houston Discord server, {0.mention}! <:Dude:449770873176719390>\
-    \n\nPlease pick your college from the list below:'.format(member))
+    profile = initialize(member.id)
+    if profile['roles']:
+        await bot.send_message(discord.Object(general), f'Welcome back, {member.mention}! <:Dude:449770873176719390>\
+        \nYour roles have been reassigned.')
+        await bot.add_roles(member, *(discord.Object(role) for role in profile['roles']))
+        if profile['mr']:
+            await bot.edit_channel_permissions(discord.Object(regulars), member, discord.PermissionOverwrite(read_messages=True))
+        return
+    welcome = await bot.send_file(discord.Object(general), colleges_file, content=f'Welcome to the University of Houston Discord server, {member.mention}! <:Dude:449770873176719390>\
+        \n\nPlease pick your college from the list below:')
     for college_emote in college_emotes:
         await bot.add_reaction(welcome, college_emote)
     result = await bot.wait_for_reaction(college_emotes.keys(), user=member, message=welcome)
     college_role = [role for role in member.server.roles if role.id == college_emotes[result.reaction.emoji]][0]
     await bot.add_roles(member, college_role)
-    await bot.send_message(discord.Object(general), '{0.name} has joined {1.name}.'.format(member, college_role))
+    await bot.send_message(discord.Object(general), f'{member.name} has joined {college_role.name}.')
 
 @bot.event
 async def on_member_remove(member):
     if member.server.id != uh_discord: return
-    await bot.send_message(discord.Object(general), 'Sorry to see you go, {0.name}. <:receivepls:495699144250359829>'.format(member))
+    await bot.send_message(discord.Object(general), f'<a:crabRave:531589239998119956> {member.display_name} is gone <a:crabRave:531589239998119956>')
+
+@bot.event
+async def on_member_update(before, after):
+    if before.roles != after.roles:
+        profiles.update_one({'_id':after.id}, {'$set':{'roles':[role.id for role in after.roles]}})
+
+@bot.event
+async def on_channel_update(before, after):
+    if after.id == regulars and after.overwrites != before.overwrites:
+        reg_members = [ow[0].id for ow in after.overwrites if ow[1].read_messages and isinstance(ow[0], discord.Member)]
+        profiles.update_many({'_id':{'$in':reg_members}}, {'$set':{'mr':True}})
+        profiles.update_many({'_id':{'$not':{'$in':reg_members}}}, {'$set':{'mr':False}})
 
 @bot.event
 async def on_message(message):
     if message.author.bot: return
-    if message.author.id == oblivion:
-        if 'vanessa' in message.content.lower() or 'weona' in message.content.lower() or unaweona in message.content:
-            await bot.add_reaction(message, delete_emoji)
-    if '//skribbl.io/' in message.content:
-        await bot.add_reaction(message, delete_emoji)
     if message.content.startswith(prefix):
         split = message.content.split()
         if split[-1].isdigit():
@@ -100,7 +125,7 @@ async def on_message(message):
         member_name = ' '.join(split[1:]) if split[0] == prefix + 'quote' else ' '.join(split)[1:]
         try:
             member_mention = next(member.mention for member in bot.get_server(uh_discord).members if member_name.lower() in (member.display_name.lower(), member.name.lower()))
-            message.content = '{0}quote {1} {2}'.format(prefix, member_mention, quote_number)
+            message.content = f'{prefix}quote {member_mention} {quote_number}'
         except StopIteration: pass
     await bot.process_commands(message)
 
@@ -109,7 +134,7 @@ async def on_message_delete(message):
     if not message.server or message.server.id != uh_discord or message.author.bot: return
     mod_delete = any(reaction for reaction in message.reactions if reaction.emoji == delete_emoji)
     embed = discord.Embed(description=message.content, color=embed_color)
-    embed.set_author(name='Message by {0.author.display_name} was {1}deleted'.format(message, 'stealth ' if mod_delete else ''), icon_url=message.author.avatar_url)
+    embed.set_author(name=f'Message by {message.author.display_name} was {"stealth " if mod_delete else ""}deleted', icon_url=message.author.avatar_url)
     if message.attachments: embed.add_field(name='Filename', value=message.attachments[0]['filename'])
     if not mod_delete: revived_message = await bot.send_message(message.channel, embed=embed)
     embed.add_field(name='Channel', value=message.channel.mention)
@@ -121,10 +146,11 @@ async def on_message_delete(message):
 @bot.event
 async def on_message_edit(before, after):
     if not before.server or before.server.id != uh_discord or before.author.bot: return
+    await bot.process_commands(after)
     ratio = difflib.SequenceMatcher(None, before.content, after.content).ratio()
     if ratio > .9: return
     embed = discord.Embed(color=embed_color)
-    embed.set_author(name='Message edited by {0.author.display_name}'.format(before), icon_url=before.author.avatar_url)
+    embed.set_author(name=f'Message edited by {before.author.display_name}', icon_url=before.author.avatar_url)
     embed.add_field(name='Before', value=before.content).add_field(name='After', value=after.content)
     revived_message = await bot.send_message(before.channel, embed=embed)
     embed.add_field(name='Channel', value=before.channel.mention)
@@ -143,7 +169,7 @@ async def on_reaction_add(reaction, member):
             return
         target = reaction.message.author
         if target == member:
-            await bot.send_message(reaction.message.channel, 'You can\'t quote yourself! {0}'.format(error))
+            await bot.send_message(reaction.message.channel, f'You can\'t quote yourself! {error}')
             return
         quote = {
             'id':reaction.message.id,
@@ -168,12 +194,10 @@ async def on_command_error(e, ctx):
     if isinstance(e, commands.CommandOnCooldown):
         cd = round(e.retry_after) + 1
         message = await bot.send_message(ctx.message.channel, 'This command is on cooldown for {0:d} more second(s). {1}'.format(cd, error))
+        await bot.add_reaction(message, delete_emoji)
     elif isinstance(e, commands.CheckFailure):
-        message = await bot.send_message(ctx.message.channel, 'You\'re unable to do that! {0}'.format(error))
+        await bot.send_message(ctx.message.channel, 'You\'re unable to do that! {0}'.format(error))
     else: print(e)
-    await asyncio.sleep(5)
-    await bot.add_reaction(message, delete_emoji)
-    await bot.add_reaction(ctx.message, delete_emoji)
 
 @bot.command(pass_context=True)
 async def ping(ctx):
@@ -184,7 +208,7 @@ async def ping(ctx):
     ping = int((t2-t1) * 1000)
     await bot.say('My ping is **{0:d}** milliseconds.'.format(ping))
 
-@bot.command(pass_context=True)
+@bot.command(pass_context=True, aliases=['eval'])
 @commands.cooldown(1, 5, commands.BucketType.user)
 async def calc(ctx, *expression: str):
     '''Calculate any python expression.'''
@@ -200,7 +224,7 @@ async def calc(ctx, *expression: str):
             globals['profiles'] = profiles
             globals['bot'] = bot
         result = str(eval(' '.join(expression), globals, None))
-        if not is_staff and len(result) > 500: await bot.say('Stop spamming! {0}'.format(error))
+        if not is_staff and len(result) > 800: await bot.say('Stop spamming! {0}'.format(error))
         else: await bot.say(result)
     except Exception as e: await bot.say('Error: {0}. {1}'.format(e, error))
 
@@ -257,6 +281,64 @@ async def quote(ctx, target: discord.Member = None, number: int = None):
     await bot.clear_reactions(quote_msg)
 
 @bot.command(pass_context=True)
+async def locations(ctx):
+    '''Check what dining locations are currently open on campus.'''
+    now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=-6)))
+    loading = await bot.say('<a:nowLoading:500000449949204495> Fetching locations, please wait <a:nowLoading:500000449949204495>')
+    req = Request(f'https://api.dineoncampus.com/v1/locations/open?site_id=5925f42eee596f0f95969b10&timestamp={now.isoformat()}')
+    with urlopen(req) as res:
+        locations = json.loads(res.read())['location_schedules']
+    await bot.delete_message(loading)
+    open_locations = '__**All Open Dining Locations:**__\n'
+    for location in locations:
+        try: schedule = next(schedule for schedule in location['schedules'] if now.isoweekday() in schedule['days'])
+        except StopIteration: continue
+        start_time = datetime.time(schedule['start_hour'], schedule['start_minutes'])
+        end_time = datetime.time(schedule['end_hour'], schedule['end_minutes'])
+        if start_time < now.time() < end_time:
+            open_locations += f'\n- {location["name"]} closes at {end_time.strftime("%I:%M %p")}'
+    await bot.say(open_locations)
+
+@bot.command(pass_context=True, aliases=['moodyswipe'])
+async def moody(ctx):
+    '''See what Moody Towers dining hall has on the menu.'''
+    now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=-6)))
+    loading = await bot.say('<a:nowLoading:500000449949204495> Fetching menu, please wait <a:nowLoading:500000449949204495>')
+    req = Request(f'https://api.dineoncampus.com/v1/location/menu?site_id=5925f42eee596f0f95969b10&platform=0&location_id=59b2b6e2ee596fc4596321b0&date={now.strftime("%y-%m-%d")}')
+    with urlopen(req) as res:
+        menu = json.loads(res.read())['menu']['periods']
+    await bot.delete_message(loading)
+    now_t = now.time()
+    if now_t < datetime.time(7) or datetime.time(22) < now_t:
+        await bot.say('Sorry, there\'s nothing to display at this time.')
+        return
+    period = (menu[0] if datetime.time(7) < now_t < datetime.time(11) else
+              menu[1] if datetime.time(11) < now_t < datetime.time(17) else
+              menu[2])
+    categories_menu = 'Choose a food category to see what\'s available:\n'
+    categories_menu += '\n'.join(f':white_small_square: {i}) {cat["name"]} ({len(cat["items"])} item(s) available)' for i, cat in enumerate(period['categories'], 1))
+    categories_msg = await bot.say(categories_menu)
+    res = await bot.wait_for_message(timeout=20, author=ctx.message.author, channel=ctx.message.channel, check=lambda m:m.content.isdigit())
+    await bot.delete_message(categories_msg)
+    if res is None or int(res.content)-1 not in range(len(period['categories'])):
+        await bot.say(f'You need to pick a category from the list. {error}')
+        return
+    await bot.add_reaction(res, delete_emoji)
+    category = period['categories'][int(res.content)-1]
+    items_emb = discord.Embed(title=f'Moody {period["name"]} Items in the {category["name"]} Category', color=embed_color)
+    for item in category['items'][:20]:
+        nutrients = f'{item["nutrients"][0]["value"]} cals, {item["nutrients"][4]["value"]}g protein, {item["nutrients"][8]["value"]}g carbs'
+        items_emb.add_field(name=item['name'], value=nutrients)
+    await bot.say(embed=items_emb)
+
+'''
+@bot.command(pass_context=True)
+@commands.cooldown(1, 15, commands.BucketType.user)
+async def addclass(ctx):
+    pass
+'''
+
+@bot.command(pass_context=True)
 @commands.has_any_role(*staff_role_ids)
 async def unquote(ctx, target: discord.Member, num: int):
     '''Remove a quote from someone.'''
@@ -279,6 +361,32 @@ async def prune(ctx, num: int, target: discord.Member = None):
     await bot.send_message(discord.Object(chat_log), '{0.content}\nChannel: {0.channel.mention}'.format(message))
     await asyncio.sleep(delete_timeout)
     await bot.add_reaction(message, delete_emoji)
+
+@bot.command(pass_context=True, aliases=['ban'])
+@commands.has_any_role(*staff_role_ids)
+async def mute(ctx, *targets: discord.Member):
+    '''Mute any number of users at once.'''
+    member = ctx.message.author
+    if not targets:
+        await bot.say('You need to give a user! {0}'.format(error))
+        return
+    await bot.add_reaction(ctx.message, delete_emoji)
+    for target in targets: await bot.add_roles(target, discord.Object(mute_role))
+    if len(targets) == 1: await bot.send_message(discord.Object(meta), f'{targets[0].display_name} was muted by {member.display_name}.')
+    else: await bot.send_message(discord.Object(meta), '{0.display_name} muted multiple users:\n- {1}'.format(member, '\n- '.join([target.display_name for target in targets])))
+
+@bot.command(pass_context=True, aliases=['unban'])
+@commands.has_any_role(*staff_role_ids)
+async def unmute(ctx, *targets: discord.Member):
+    '''Unmute any number of users at once.'''
+    member = ctx.message.author
+    if not targets:
+        await bot.say('You need to give a user! {0}'.format(error))
+        return
+    await bot.add_reaction(ctx.message, delete_emoji)
+    for target in targets: await bot.remove_roles(target, discord.Object(mute_role))
+    if len(targets) == 1: await bot.send_message(discord.Object(meta), f'{targets[0].display_name} was unmuted by {member.display_name}.')
+    else: await bot.send_message(discord.Object(meta), '{0.display_name} unmuted multiple users:\n- {1}'.format(member, '\n- '.join([target.display_name for target in targets])))
 
 @bot.command()
 @commands.has_any_role(*staff_role_ids)
