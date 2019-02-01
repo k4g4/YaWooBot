@@ -13,7 +13,7 @@ __author__ = 'kaga'
 
 prefix = '*'
 bot = commands.Bot(command_prefix=prefix)
-token = 'NTA0MTE5NTEyNDE3Njk3ODAy.DrAeIQ.EWRYbcB9oIiwtIjwm-9JdKr_i0E'
+token = ''
 yawoo_folder = '/home/onahole/YaWoo'
 colleges_file = os.path.join(yawoo_folder, 'colleges.png')
 error = ':no_entry_sign:'
