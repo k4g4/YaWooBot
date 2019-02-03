@@ -200,10 +200,10 @@ async def on_command_error(e, ctx):
 @bot.command(pass_context=True)
 async def ping(ctx):
     '''Check the bot's response time.'''
-    t1 = time.time()
+    start = time.time()
     message = await bot.say('My ping is...')
     await asyncio.sleep(3)
-    t2 = time.time()
+    end = time.time()
     await bot.edit_message(message, f'My ping is... **{(end-start-3) * 1000}** milliseconds.')
 
 @bot.command(pass_context=True, aliases=['eval'])
