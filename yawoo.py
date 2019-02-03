@@ -92,8 +92,7 @@ async def on_member_join(member):
     for college_emote in college_emotes:
         await bot.add_reaction(welcome, college_emote)
     result = await bot.wait_for_reaction(college_emotes.keys(), user=member, message=welcome)
-    college_role = [role for role in member.server.roles if role.id == college_emotes[result.reaction.emoji]][0]
-    await bot.add_roles(member, college_role)
+    await bot.add_roles(member, discord.Object(college_emotes[result.reaction.emoji]))
     await bot.send_message(discord.Object(general), f'{member.name} has joined {college_role.name}.')
 
 @bot.event
@@ -183,8 +182,8 @@ async def on_reaction_add(reaction, member):
         profiles.update_one({'_id':target.id}, {'$push':{'quotes':quote}})
         quote_number = len(target_profile['quotes']) + 1
         suffix = {1:'st', 2:'nd', 3:'rd'}.get(quote_number % 10, 'th') if quote_number % 100 < 10 or 20 < quote_number % 100 else 'th'
-        await bot.send_message(reaction.message.channel, '{0.display_name} had their {1}{2} quote added by {3.display_name}.'.format(target, quote_number, suffix, member))
-        embed = discord.Embed(title='Message by {0.display_name} was quoted by {1.display_name}'.format(target, member), description=quote['content'], color=embed_color)
+        await bot.send_message(reaction.message.channel, f'{target.display_name} had their {quote_number}{suffix} quote added by {member.display_name}.')
+        embed = discord.Embed(title=f'Message by {target.display_name} was quoted by {member.display_name}', description=quote['content'], color=embed_color)
         embed.set_image(url=quote['attachment'])
         embed.add_field(name='Number', value=str(quote_number)).add_field(name='Channel', value=reaction.message.channel.mention)
         await bot.send_message(discord.Object(chat_log), embed=embed)
@@ -192,26 +191,26 @@ async def on_reaction_add(reaction, member):
 @bot.event
 async def on_command_error(e, ctx):
     if isinstance(e, commands.CommandOnCooldown):
-        cd = round(e.retry_after) + 1
-        message = await bot.send_message(ctx.message.channel, 'This command is on cooldown for {0:d} more second(s). {1}'.format(cd, error))
+        message = await bot.send_message(ctx.message.channel, f'This command is on cooldown for {round(e.retry_after)+1:d} more second(s). {error}')
         await bot.add_reaction(message, delete_emoji)
     elif isinstance(e, commands.CheckFailure):
-        await bot.send_message(ctx.message.channel, 'You\'re unable to do that! {0}'.format(error))
+        await bot.send_message(ctx.message.channel, f'You\'re unable to do that! {error}')
     else: print(e)
 
 @bot.command(pass_context=True)
 async def ping(ctx):
     '''Check the bot's response time.'''
-    t1 = time.perf_counter()
-    await bot.send_typing(ctx.message.author)
-    t2 = time.perf_counter()
-    ping = int((t2-t1) * 1000)
-    await bot.say('My ping is **{0:d}** milliseconds.'.format(ping))
+    t1 = time.time()
+    message = await bot.say('My ping is...')
+    await asyncio.sleep(3)
+    t2 = time.time()
+    await bot.edit_message(message, f'My ping is... **{(end-start-3) * 1000}** milliseconds.')
 
 @bot.command(pass_context=True, aliases=['eval'])
 @commands.cooldown(1, 5, commands.BucketType.user)
 async def calc(ctx, *expression: str):
     '''Calculate any python expression.'''
+    member = ctx.message.author
     try:
         globals = {
             'datetime':datetime,
@@ -219,14 +218,14 @@ async def calc(ctx, *expression: str):
             'math':math,
             'uh':bot.get_server(uh_discord),
         }
-        is_staff = any(role.id in staff_role_ids.values() for role in ctx.message.author.roles)
+        is_staff = hasattr(member, 'roles') and any(role.id in staff_role_ids.values() for role in member.roles)
         if is_staff:
             globals['profiles'] = profiles
             globals['bot'] = bot
         result = str(eval(' '.join(expression), globals, None))
-        if not is_staff and len(result) > 800: await bot.say('Stop spamming! {0}'.format(error))
+        if not is_staff and len(result) > 500: await bot.say(f'Stop spamming! {error}')
         else: await bot.say(result)
-    except Exception as e: await bot.say('Error: {0}. {1}'.format(e, error))
+    except Exception as e: await bot.say(f'Error: {e}. {error}')
 
 @bot.command()
 @commands.cooldown(1, 5, commands.BucketType.user)
@@ -250,12 +249,12 @@ async def quote(ctx, target: discord.Member = None, number: int = None):
         except: target = None
     else: target_profile = initialize(target.id)
     if not target_profile['quotes']:
-        await bot.say('{0.display_name} has no quotes added. {1}'.format(target, error))
+        await bot.say(f'{target.display_name} has no quotes added. {error}')
         return
     def make_quote_embed(number):
         if number < 0: raise IndexError
         quote = target_profile['quotes'][number]
-        quote_embed = discord.Embed(description='{}'.format(quote['content']), color=embed_color, timestamp=quote['timestamp'])
+        quote_embed = discord.Embed(description=quote['content'], color=embed_color, timestamp=quote['timestamp'])
         quote_embed.set_image(url=quote['attachment'])
         number += 1
         suffix = {1:'st', 2:'nd', 3:'rd'}.get(number % 10, 'th') if number % 100 < 10 or 20 < number % 100 else 'th'
@@ -265,7 +264,7 @@ async def quote(ctx, target: discord.Member = None, number: int = None):
     try:
         quote_msg = await bot.say(embed=make_quote_embed(number))
     except IndexError:
-        await bot.say('{0.display_name} only has {1} quote(s). {2}'.format(target, len(target_profile['quotes']), error))
+        await bot.say(f'{target.display_name} only has {len(target_profile["quotes"])} quote(s). {error}')
         return
     await bot.add_reaction(quote_msg, '⬅')
     await bot.add_reaction(quote_msg, '⏸')
@@ -331,13 +330,6 @@ async def moody(ctx):
         items_emb.add_field(name=item['name'], value=nutrients)
     await bot.say(embed=items_emb)
 
-'''
-@bot.command(pass_context=True)
-@commands.cooldown(1, 20, commands.BucketType.user)
-async def addclass(ctx):
-    pass
-'''
-
 @bot.command(pass_context=True)
 @commands.has_any_role(*staff_role_ids)
 async def unquote(ctx, target: discord.Member, num: int):
@@ -345,22 +337,20 @@ async def unquote(ctx, target: discord.Member, num: int):
     target_profile = initialize(target.id)
     target_profile['quotes'].pop(num-1)
     profiles.update_one({'_id':target.id}, {'$set':{'quotes':target_profile['quotes']}})
-    await bot.say('{0.display_name}\'s quote has been removed.'.format(target))
+    await bot.say(f'{target.display_name}\'s quote has been removed.')
 
 @bot.command(pass_context=True)
 @commands.has_any_role(*staff_role_ids)
 async def prune(ctx, num: int, target: discord.Member = None):
     '''Remove a certain number of messages, with an optional user filter.'''
     if num > max_prune:
-        await bot.say('You can only prune up to {0} messages at a time. {1}'.format(max_prune, error))
+        await bot.say(f'You can only prune up to {max_prune} messages at a time. {error}')
         return
     async for message in bot.logs_from(ctx.message.channel, num + 1):
         if target and message.author != target: continue
         await bot.add_reaction(message, delete_emoji)
-    message = await bot.say('{0.display_name}\'s messages were pruned.'.format(target) if target else 'The last {0} messages were pruned.'.format(num))
-    await bot.send_message(discord.Object(chat_log), '{0.content}\nChannel: {0.channel.mention}'.format(message))
-    await asyncio.sleep(delete_timeout)
-    await bot.add_reaction(message, delete_emoji)
+    await bot.say(f'{target.display_name}\'s messages were pruned.' if target else f'The last {num} messages were pruned.')
+    await bot.send_message(discord.Object(chat_log), embed=discord.Embed(description=f'Messages from {ctx.message.channel.mention} were pruned', color=embed_color))
 
 @bot.command(pass_context=True, aliases=['ban'])
 @commands.has_any_role(*staff_role_ids)
@@ -368,12 +358,12 @@ async def mute(ctx, *targets: discord.Member):
     '''Mute any number of users at once.'''
     member = ctx.message.author
     if not targets:
-        await bot.say('You need to give a user! {0}'.format(error))
+        await bot.say(f'You need to give a user! {error}')
         return
     await bot.add_reaction(ctx.message, delete_emoji)
     for target in targets: await bot.add_roles(target, discord.Object(mute_role))
     if len(targets) == 1: await bot.send_message(discord.Object(meta), f'{targets[0].display_name} was muted by {member.display_name}.')
-    else: await bot.send_message(discord.Object(meta), '{0.display_name} muted multiple users:\n- {1}'.format(member, '\n- '.join([target.display_name for target in targets])))
+    else: await bot.send_message(discord.Object(meta), f'{member.display_name} muted multiple users:\n- {"\n- ".join(target.display_name for target in targets)}')
 
 @bot.command(pass_context=True, aliases=['unban'])
 @commands.has_any_role(*staff_role_ids)
@@ -381,22 +371,19 @@ async def unmute(ctx, *targets: discord.Member):
     '''Unmute any number of users at once.'''
     member = ctx.message.author
     if not targets:
-        await bot.say('You need to give a user! {0}'.format(error))
+        await bot.say(f'You need to give a user! {0}')
         return
     await bot.add_reaction(ctx.message, delete_emoji)
     for target in targets: await bot.remove_roles(target, discord.Object(mute_role))
     if len(targets) == 1: await bot.send_message(discord.Object(meta), f'{targets[0].display_name} was unmuted by {member.display_name}.')
-    else: await bot.send_message(discord.Object(meta), '{0.display_name} unmuted multiple users:\n- {1}'.format(member, '\n- '.join([target.display_name for target in targets])))
+    else: await bot.send_message(discord.Object(meta), f'{member.display_name} unmuted multiple users:\n- {"\n- ".join(target.display_name for target in targets)}')
 
 @bot.command()
 @commands.has_any_role(*staff_role_ids)
 async def invites():
     '''Check invites in the server.'''
     invites = await bot.invites_from(bot.get_server(uh_discord))
-    await bot.say('All invites:\n'+', '.join('{0.inviter.name}: {0.uses} uses'.format(invite) for invite in sorted(invites, key=lambda i:i.uses, reverse=True) if invite.uses > 0))
-
-async def loop():
-    pass
+    await bot.say('All invites:\n'+', '.join(f'{invite.inviter.name}: {invite.uses} uses' for invite in sorted(invites, key=lambda i:i.uses, reverse=True) if invite.uses > 0))
 
 if __name__ == '__main__':
     bot.loop.create_task(loop())
