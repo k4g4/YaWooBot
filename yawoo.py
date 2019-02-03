@@ -18,7 +18,7 @@ __author__ = 'kaga'
 
 prefix = '*'
 bot = commands.Bot(command_prefix=prefix)
-yawoo_folder = '/home/onahole/YaWoo'
+yawoo_folder = '/home/yawoo/YaWoo'
 colleges_file = os.path.join(yawoo_folder, 'colleges.png')
 error = ':no_entry_sign:'
 delete_timeout = 10
