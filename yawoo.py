@@ -191,7 +191,7 @@ async def on_reaction_add(reaction, member):
 @bot.event
 async def on_command_error(e, ctx):
     if isinstance(e, commands.CommandOnCooldown):
-        message = await bot.send_message(ctx.message.channel, f'This command is on cooldown for {round(e.retry_after)+1:d} more second(s). {error}')
+        message = await bot.send_message(ctx.message.channel, f'This command is on cooldown for {round(e.retry_after)+1} more second(s). {error}')
         await bot.add_reaction(message, delete_emoji)
     elif isinstance(e, commands.CheckFailure):
         await bot.send_message(ctx.message.channel, f'You\'re unable to do that! {error}')
@@ -204,7 +204,7 @@ async def ping(ctx):
     message = await bot.say('My ping is...')
     await asyncio.sleep(3)
     end = time.time()
-    await bot.edit_message(message, f'My ping is... **{(end-start-3) * 1000}** milliseconds.')
+    await bot.edit_message(message, f'My ping is... **{round((end-start-3)*1000, 2)}** milliseconds.')
 
 @bot.command(pass_context=True, aliases=['eval'])
 @commands.cooldown(1, 5, commands.BucketType.user)
