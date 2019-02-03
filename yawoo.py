@@ -363,7 +363,7 @@ async def mute(ctx, *targets: discord.Member):
     await bot.add_reaction(ctx.message, delete_emoji)
     for target in targets: await bot.add_roles(target, discord.Object(mute_role))
     if len(targets) == 1: await bot.send_message(discord.Object(meta), f'{targets[0].display_name} was muted by {member.display_name}.')
-    else: await bot.send_message(discord.Object(meta), f'{member.display_name} muted multiple users:\n- {"\n- ".join(target.display_name for target in targets)}')
+    else: await bot.send_message(discord.Object(meta), f'{member.display_name} muted multiple users:\n- {{}}'.format('\n- '.join(target.display_name for target in targets)))
 
 @bot.command(pass_context=True, aliases=['unban'])
 @commands.has_any_role(*staff_role_ids)
@@ -376,8 +376,7 @@ async def unmute(ctx, *targets: discord.Member):
     await bot.add_reaction(ctx.message, delete_emoji)
     for target in targets: await bot.remove_roles(target, discord.Object(mute_role))
     if len(targets) == 1: await bot.send_message(discord.Object(meta), f'{targets[0].display_name} was unmuted by {member.display_name}.')
-    else: await bot.send_message(discord.Object(meta), f'{member.display_name} unmuted multiple users:\n- {"\n- ".join(target.display_name for target in targets)}')
-
+    else: await bot.send_message(discord.Object(meta), f'{member.display_name} unmuted multiple users:\n- {{}}'.format('\n- '.join(target.display_name for target in targets)))
 @bot.command()
 @commands.has_any_role(*staff_role_ids)
 async def invites():
@@ -386,5 +385,4 @@ async def invites():
     await bot.say('All invites:\n'+', '.join(f'{invite.inviter.name}: {invite.uses} uses' for invite in sorted(invites, key=lambda i:i.uses, reverse=True) if invite.uses > 0))
 
 if __name__ == '__main__':
-    bot.loop.create_task(loop())
     bot.run(token)
